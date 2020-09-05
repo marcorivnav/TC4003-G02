@@ -52,7 +52,10 @@ func newMaster(master string) (mr *Master) {
 
 // Sequential runs map and reduce tasks sequentially, waiting for each task to
 // complete before scheduling the next.
-func Sequential(jobName string, files []string, nreduce int,
+func Sequential(
+	jobName string, // JobName, only the name of the test.
+	files []string, // files Slice with the name of the files
+	nreduce int,
 	mapF func(string, string) []KeyValue,
 	reduceF func(string, []string) string,
 ) (mr *Master) {

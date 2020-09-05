@@ -34,7 +34,7 @@ func sum(num int, fileName string) int {
 	// HINT: use `readInts` and `sumWorkers`
 	// HINT: used buffered channels for splitting numbers between workers
 
-	// Initialize a reader associated to the fileName
+	// Initialize a reader associated to the fileNames
 	file, err := os.Open(fileName)
 	checkError(err)
 	fileReader := bufio.NewReader(file)
