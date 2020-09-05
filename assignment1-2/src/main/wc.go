@@ -20,7 +20,7 @@ func mapF(document string, value string) (res []mapreduce.KeyValue) {
 
 	var result []mapreduce.KeyValue
 
-	for _, word := range strings.FieldsFunc(document, func(c rune) bool {
+	for _, word := range strings.FieldsFunc(value, func(c rune) bool {
 		return !unicode.IsLetter(c)
 	}) {
 		result = append(result, mapreduce.KeyValue{word, "1"})
