@@ -14,18 +14,16 @@ import (
 // and the value is the file's contents. The return value should be a slice of
 // key/value pairs, each represented by a mapreduce.KeyValue.
 func mapF(document string, value string) (res []mapreduce.KeyValue) {
-	// TODO: you have to write this function
-	// Return type
-
-	// comment
-
+	// Declare the slice that will contain the result
 	var result []mapreduce.KeyValue
 
+	// Iterate over the words of the document, those that satisfy the isLetter function are added to the result slice
 	for _, word := range strings.FieldsFunc(value, func(c rune) bool {
 		return !unicode.IsLetter(c)
 	}) {
-		result = append(result, mapreduce.KeyValue{word, "1"})
+		result = append(result, mapreduce.KeyValue{Key: word, Value: "1"})
 	}
+
 	return result
 }
 
@@ -33,16 +31,21 @@ func mapF(document string, value string) (res []mapreduce.KeyValue) {
 // list of that key's string value (merged across all inputs). The return value
 // should be a single output value for that key.
 func reduceF(key string, values []string) string {
-	// TODO: you also have to write this function
+	// Declare an accumulator to hold the final key sum
+	keySum := 0
 
-	r := 0
-	for _, s := range values {
-		if i, err := strconv.Atoi(s); err == nil {
-			r += i
+	// Iterate over the key values
+	for _, singleValue := range values {
+		// Try to convert each value to integer
+		singleInteger, err := strconv.Atoi(singleValue)
+
+		// If the conversion succeeds, add it to the key sum
+		if err == nil {
+			keySum += singleInteger
 		}
 	}
-	return strconv.Itoa(r)
 
+	return strconv.Itoa(keySum)
 }
 
 // Can be run in 3 ways:
