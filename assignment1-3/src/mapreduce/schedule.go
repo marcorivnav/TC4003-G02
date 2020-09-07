@@ -19,8 +19,34 @@ func (mr *Master) schedule(phase jobPhase) {
 	// them have been completed successfully should the function return.
 	// Remember that workers may fail, and that any given worker may finish
 	// multiple tasks.
-	//
-	// TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-	//
+
+	// Wait for at least 1 available worker
+	<-mr.registerChannel
+
+	// Worker index to keep track of the worker that takes the next task
+	workerIndex := 0
+
+	// Iterate the number of tasks to do
+	for i := 0; i < ntasks; i++ {
+		// Build the arguments struct
+		taskArguments := DoTaskArgs{JobName: mr.jobName, File: mr.files[i], Phase: phase, TaskNumber: i, NumOtherPhase: nios}
+
+		// Reset the worker index if it is greater than the available workers
+		if workerIndex >= len(mr.workers) {
+			workerIndex = 0
+		}
+
+		// Distribute the tasks in the available workers
+		isCallSuccessful := call(mr.workers[workerIndex], "Worker.DoTask", taskArguments, new(struct{}))
+
+		// If the task call failed, we have to re-schedule it
+		if !isCallSuccessful {
+			i--
+		}
+
+		// On each task iteration, the worker index is changed
+		workerIndex++
+	}
+
 	debug("Schedule: %v phase done\n", phase)
 }
