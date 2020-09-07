@@ -15,11 +15,6 @@ func (mr *Master) schedule(phase jobPhase) {
 
 	debug("Schedule: %v %v tasks (%d I/Os)\n", ntasks, phase, nios)
 
-	// All ntasks tasks have to be scheduled on workers, and only once all of
-	// them have been completed successfully should the function return.
-	// Remember that workers may fail, and that any given worker may finish
-	// multiple tasks.
-
 	// Wait for at least 1 available worker
 	<-mr.registerChannel
 

@@ -14,8 +14,6 @@ import (
 // and the value is the file's contents. The return value should be a slice of
 // key/value pairs, each represented by a mapreduce.KeyValue.
 func mapF(document string, value string) (res []mapreduce.KeyValue) {
-	// TODO: you should complete this to do the inverted index challenge
-
 	// Split the content in words
 	words := strings.FieldsFunc(value, func(c rune) bool {
 		return !unicode.IsLetter(c)
