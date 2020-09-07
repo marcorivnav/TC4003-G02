@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"mapreduce"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // The mapping function is called once for each piece of the input.
@@ -16,22 +16,15 @@ import (
 func mapF(document string, value string) (res []mapreduce.KeyValue) {
 	// TODO: you should complete this to do the inverted index challenge
 
-	// Build the regex
-	reg := regexp.MustCompile("[^0-9a-zA-Z]+")
-
-	lowerCaseValue := strings.ToLower(value)
-
-	// Split in words
-	words := strings.Fields(lowerCaseValue)
+	// Split the content in words
+	words := strings.FieldsFunc(value, func(c rune) bool {
+		return !unicode.IsLetter(c)
+	})
 
 	// Organize them in a map
 	wordsMap := make(map[string]string)
 	for _, word := range words {
-		// Build safe words based only-characters rules
-		safeWord := reg.ReplaceAllString(word, "")
-
-		// Only the words that fit the 'charThreshold' are added to the map
-		wordsMap[safeWord] = document
+		wordsMap[word] = document
 	}
 
 	// Build the array using the map values
@@ -48,13 +41,12 @@ func mapF(document string, value string) (res []mapreduce.KeyValue) {
 // should be a single output value for that key.
 
 func reduceF(key string, values []string) string {
-	// TODO: you should complete this to do the inverted index challenge
 	valuesLength := len(values)
 
-	// Initialize the result string with the key and length of values
-	filesString := key + " " + strconv.Itoa(valuesLength) + " "
+	// Initialize the result string with the length of values
+	filesString := strconv.Itoa(valuesLength) + " "
 
-	// Iterate over the values
+	// Iterate over the values to include the files names comma-separated
 	for i := 0; i < valuesLength; i++ {
 		singleValue := values[i]
 		filesString += singleValue
