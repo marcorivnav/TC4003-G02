@@ -30,10 +30,6 @@ func sumWorker(nums chan int, out chan int) {
 // You should use `checkError` to handle potential errors.
 // Do NOT modify function signature.
 func sum(num int, fileName string) int {
-	// TODO: implement me
-	// HINT: use `readInts` and `sumWorkers`
-	// HINT: used buffered channels for splitting numbers between workers
-
 	// Initialize a reader associated to the fileNames
 	file, err := os.Open(fileName)
 	checkError(err)
