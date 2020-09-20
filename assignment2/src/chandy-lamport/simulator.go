@@ -24,6 +24,7 @@ type Simulator struct {
 	servers        map[string]*Server // key = server ID
 	logger         *Logger
 	// TODO: ADD MORE FIELDS HERE
+	collectionChannel chan string
 }
 
 func NewSimulator() *Simulator {
@@ -32,6 +33,7 @@ func NewSimulator() *Simulator {
 		0,
 		make(map[string]*Server),
 		NewLogger(),
+		make(chan string, 100),
 	}
 }
 
@@ -107,6 +109,11 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	snapshotId := sim.nextSnapshotId
 	sim.nextSnapshotId++
 	sim.logger.RecordEvent(sim.servers[serverId], StartSnapshot{serverId, snapshotId})
+
+	// Get the initial server object and call its StartSnapshot method
+	initialServer := sim.servers[serverId]
+	initialServer.StartSnapshot(snapshotId)
+
 	// TODO: IMPLEMENT ME
 }
 
@@ -115,6 +122,9 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.logger.RecordEvent(sim.servers[serverId], EndSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
+
+	// Send the serverId in the collectionChannel to unlock the collectSnapshot blocking
+	sim.collectionChannel <- serverId
 }
 
 // Collect and merge snapshot state from all the servers.
@@ -122,5 +132,31 @@ func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
 	// TODO: IMPLEMENT ME
 	snap := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
+
+	// Make a map of the servers that are pending to complete their snapshot
+	// (Initially, all the servers are pending)
+	pendingServers := make(map[string]bool)
+	for key := range sim.servers {
+		pendingServers[key] = true
+	}
+
+	// While there are servers pending to complete their snapshots, the function will be blocked.
+	// When the collectionChannel receives a serverId, the simulator removes the entry from the pending servers map
+	for len(pendingServers) > 0 {
+		completedServerID := <-sim.collectionChannel
+		delete(pendingServers, completedServerID)
+	}
+
+	// Iterate over the servers to get their individual snapshots
+	for _, server := range sim.servers {
+		// Get each server snapshot
+		serverSnapshot := server.snapshots[snapshotId]
+
+		// Copy the server snapshot tokens into the global snapshot
+		for key, value := range serverSnapshot.tokens {
+			snap.tokens[key] = value
+		}
+	}
+
 	return &snap
 }

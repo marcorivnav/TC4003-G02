@@ -1,6 +1,9 @@
 package chandy_lamport
 
-import "log"
+import (
+	"fmt"
+	"log"
+)
 
 // The main participant of the distributed snapshot protocol.
 // Servers exchange token messages and marker messages among each other.
@@ -14,6 +17,7 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
+	snapshots map[int]SnapshotState
 }
 
 // A unidirectional communication channel between two servers
@@ -31,6 +35,7 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		sim,
 		make(map[string]*Link),
 		make(map[string]*Link),
+		make(map[int]SnapshotState),
 	}
 }
 
@@ -85,10 +90,43 @@ func (server *Server) SendTokens(numTokens int, dest string) {
 // should notify the simulator by calling `sim.NotifySnapshotComplete`.
 func (server *Server) HandlePacket(src string, message interface{}) {
 	// TODO: IMPLEMENT ME
+
+	// Check the message type
+	switch message := message.(type) {
+	case MarkerMessage:
+		snapshotID := message.snapshotId
+
+		// Check if this server already has a snapshot for the received snapshotID
+		_, snapshotExists := server.snapshots[snapshotID]
+
+		if snapshotExists {
+			// Ignore the message, this server already has that snapshot
+			fmt.Printf("Server %s ignored the snapshot[%d]\n", server.Id, snapshotID)
+		} else {
+			// Perform the snapshot
+			server.PerformSnapshot(snapshotID)
+		}
+	}
 }
 
 // Start the chandy-lamport snapshot algorithm on this server.
 // This should be called only once per server.
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
+	server.PerformSnapshot(snapshotId)
+}
+
+func (server *Server) PerformSnapshot(snapshotId int) {
+	// Build the tokens map (Even if it will only have this server tokens)
+	serverTokens := make(map[string]int)
+	serverTokens[server.Id] = server.Tokens
+
+	// Store the own snapshot in the server snapshots map
+	server.snapshots[snapshotId] = SnapshotState{snapshotId, serverTokens, make([]*SnapshotMessage, 0)}
+
+	// Notify the simulator
+	server.sim.NotifySnapshotComplete(server.Id, snapshotId)
+
+	// Send a marker message to all the server channels asking to perform their snapshots
+	server.SendToNeighbors(MarkerMessage{snapshotId})
 }
