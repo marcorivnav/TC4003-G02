@@ -25,6 +25,7 @@ type Simulator struct {
 	logger         *Logger
 	// TODO: ADD MORE FIELDS HERE
 	collectionChannel chan string
+	allChannels       map[int]chan string
 }
 
 func NewSimulator() *Simulator {
@@ -34,6 +35,7 @@ func NewSimulator() *Simulator {
 		make(map[string]*Server),
 		NewLogger(),
 		make(chan string, 100),
+		make(map[int]chan string),
 	}
 }
 
@@ -123,8 +125,14 @@ func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.logger.RecordEvent(sim.servers[serverId], EndSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
 
+	// If there is no channel yet for this snapshot, create it
+	_, ok := sim.allChannels[snapshotId]
+	if !ok {
+		sim.allChannels[snapshotId] = make(chan string, 20)
+	}
+
 	// Send the serverId in the collectionChannel to unlock the collectSnapshot blocking
-	sim.collectionChannel <- serverId
+	sim.allChannels[snapshotId] <- serverId
 }
 
 // Collect and merge snapshot state from all the servers.
@@ -141,9 +149,11 @@ func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
 	}
 
 	// While there are servers pending to complete their snapshots, the function will be blocked.
-	// When the collectionChannel receives a serverId, the simulator removes the entry from the pending servers map
+
+	// When the channel associated with the current snapshotId receives a serverId,
+	// the simulator removes the entry from the pending servers map
 	for len(pendingServers) > 0 {
-		completedServerID := <-sim.collectionChannel
+		completedServerID := <-sim.allChannels[snapshotId]
 		delete(pendingServers, completedServerID)
 	}
 
@@ -155,6 +165,11 @@ func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
 		// Copy the server snapshot tokens into the global snapshot
 		for key, value := range serverSnapshot.tokens {
 			snap.tokens[key] = value
+		}
+
+		// Collect the messages too
+		for _, value := range serverSnapshot.messages {
+			snap.messages = append(snap.messages, value)
 		}
 	}
 

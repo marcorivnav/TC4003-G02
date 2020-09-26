@@ -1,7 +1,6 @@
 package chandy_lamport
 
 import (
-	"fmt"
 	"log"
 )
 
@@ -17,7 +16,8 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
-	snapshots map[int]SnapshotState
+	snapshots     map[int]*SnapshotState
+	storeMessages map[int]bool
 }
 
 // A unidirectional communication channel between two servers
@@ -35,7 +35,8 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		sim,
 		make(map[string]*Link),
 		make(map[string]*Link),
-		make(map[int]SnapshotState),
+		make(map[int]*SnapshotState),
+		make(map[int]bool),
 	}
 }
 
@@ -99,12 +100,28 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 		// Check if this server already has a snapshot for the received snapshotID
 		_, snapshotExists := server.snapshots[snapshotID]
 
-		if snapshotExists {
-			// Ignore the message, this server already has that snapshot
-			fmt.Printf("Server %s ignored the snapshot[%d]\n", server.Id, snapshotID)
-		} else {
+		if !snapshotExists {
 			// Perform the snapshot
-			server.PerformSnapshot(snapshotID)
+			server.performSnapshot(snapshotID)
+		}
+
+		// Close the saving of messages for that snapshot
+		server.storeMessages[snapshotID] = false
+
+	case TokenMessage:
+		numTokens := message.numTokens
+
+		// Add the tokens to the server
+		server.Tokens += numTokens
+
+		// If the server already has snapshots
+		for _, snapshot := range server.snapshots {
+
+			// Add the messages to each one of the snapshots that are open (Those that are not in the storeMessages map)
+			if _, ok := server.storeMessages[snapshot.id]; !ok {
+				snapshotMessage := SnapshotMessage{src, server.Id, message}
+				snapshot.messages = append(snapshot.messages, &snapshotMessage)
+			}
 		}
 	}
 }
@@ -113,20 +130,23 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 // This should be called only once per server.
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
-	server.PerformSnapshot(snapshotId)
+	server.performSnapshot(snapshotId)
 }
 
-func (server *Server) PerformSnapshot(snapshotId int) {
+func (server *Server) performSnapshot(snapshotID int) {
 	// Build the tokens map (Even if it will only have this server tokens)
 	serverTokens := make(map[string]int)
 	serverTokens[server.Id] = server.Tokens
 
-	// Store the own snapshot in the server snapshots map
-	server.snapshots[snapshotId] = SnapshotState{snapshotId, serverTokens, make([]*SnapshotMessage, 0)}
+	// Build the messages array
+	serverMessages := make([]*SnapshotMessage, 0)
 
-	// Notify the simulator
-	server.sim.NotifySnapshotComplete(server.Id, snapshotId)
+	// Store the own snapshot in the server snapshots map
+	server.snapshots[snapshotID] = &SnapshotState{snapshotID, serverTokens, serverMessages}
 
 	// Send a marker message to all the server channels asking to perform their snapshots
-	server.SendToNeighbors(MarkerMessage{snapshotId})
+	server.SendToNeighbors(MarkerMessage{snapshotID})
+
+	// Notify the simulator
+	server.sim.NotifySnapshotComplete(server.Id, snapshotID)
 }
