@@ -2,6 +2,7 @@ package chandy_lamport
 
 import (
 	"log"
+	"strconv"
 )
 
 // The main participant of the distributed snapshot protocol.
@@ -17,7 +18,7 @@ type Server struct {
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
 	snapshots     map[int]*SnapshotState
-	storeMessages map[int]bool
+	storeMessages map[string]bool
 }
 
 // A unidirectional communication channel between two servers
@@ -36,7 +37,7 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		make(map[string]*Link),
 		make(map[string]*Link),
 		make(map[int]*SnapshotState),
-		make(map[int]bool),
+		make(map[string]bool),
 	}
 }
 
@@ -105,8 +106,9 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 			server.performSnapshot(snapshotID)
 		}
 
-		// Close the saving of messages for that snapshot
-		server.storeMessages[snapshotID] = false
+		// Close the saving of messages for that snapshot (BUT only for that channel)
+		storeMessagesKey := strconv.Itoa(snapshotID) + "-" + src
+		server.storeMessages[storeMessagesKey] = false
 
 	case TokenMessage:
 		numTokens := message.numTokens
@@ -118,7 +120,8 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 		for _, snapshot := range server.snapshots {
 
 			// Add the messages to each one of the snapshots that are open (Those that are not in the storeMessages map)
-			if _, ok := server.storeMessages[snapshot.id]; !ok {
+			storeMessagesKey := strconv.Itoa(snapshot.id) + "-" + src
+			if _, ok := server.storeMessages[storeMessagesKey]; !ok {
 				snapshotMessage := SnapshotMessage{src, server.Id, message}
 				snapshot.messages = append(snapshot.messages, &snapshotMessage)
 			}
@@ -133,6 +136,8 @@ func (server *Server) StartSnapshot(snapshotId int) {
 	server.performSnapshot(snapshotId)
 }
 
+/* performSnapshot creates an entry of SnapshotState and stores it in the server snapshots map. Also sends a MarkerMessage to the
+   server neighbors and notifies the Simulator that the snapshot in the server is complete */
 func (server *Server) performSnapshot(snapshotID int) {
 	// Build the tokens map (Even if it will only have this server tokens)
 	serverTokens := make(map[string]int)

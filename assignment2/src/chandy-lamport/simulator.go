@@ -135,7 +135,7 @@ func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.allChannels[snapshotId] <- serverId
 }
 
-// Collect and merge snapshot state from all the servers.
+// CollectSnapshot collects and merges snapshot state from all the servers.
 // This function blocks until the snapshot process has completed on all servers.
 func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
 	// TODO: IMPLEMENT ME
