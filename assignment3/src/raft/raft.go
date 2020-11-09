@@ -17,13 +17,14 @@ package raft
 //   in the same server.
 //
 
-import "sync"
-import "labrpc"
-
-// import "bytes"
-// import "encoding/gob"
-
-
+import (
+	"bytes"
+	"encoding/gob"
+	"labrpc"
+	"math/rand"
+	"sync"
+	"time"
+)
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -35,6 +36,12 @@ type ApplyMsg struct {
 	Command     interface{}
 	UseSnapshot bool   // ignore for lab2; only used in lab3
 	Snapshot    []byte // ignore for lab2; only used in lab3
+}
+
+type logEntries struct {
+	Command interface{}
+	term    int
+	index   int
 }
 
 //
@@ -50,16 +57,38 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	// Persistent state on all servers
+	currentTerm int
+	votedFor    int
+	log         []*logEntries
+
+	// Volatile state on all servers
+	commitIndex int
+	lastApplied int
+
+	// Volatile state on leaders
+	nextIndex  []int
+	matchIndex []int
+
+	// Additional variables
+	ElectionTimer int
+	LeaderTimer   int
+
+	votes int
+	role  string
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
 	var term int
-	var isleader bool
+	var isLeader bool
 	// Your code here.
-	return term, isleader
+	term = rf.currentTerm
+	if rf.role == "leader" {
+		isLeader = true
+	}
+	return term, isLeader
 }
 
 //
@@ -70,12 +99,13 @@ func (rf *Raft) GetState() (int, bool) {
 func (rf *Raft) persist() {
 	// Your code here.
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := gob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := gob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -84,27 +114,63 @@ func (rf *Raft) persist() {
 func (rf *Raft) readPersist(data []byte) {
 	// Your code here.
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := gob.NewDecoder(r)
-	// d.Decode(&rf.xxx)
-	// d.Decode(&rf.yyy)
+	r := bytes.NewBuffer(data)
+	d := gob.NewDecoder(r)
+	d.Decode(&rf.currentTerm)
+	d.Decode(&rf.votedFor)
+	d.Decode(&rf.log)
 }
-
-
-
 
 //
 // example RequestVote RPC arguments structure.
 //
-type RequestVoteArgs struct {
+type RequestVoteArgs struct { //Implement first
 	// Your data here.
+	Term         int
+	CandidateID  int
+	LastLogIndex int
+	LastLogTerm  int
 }
 
 //
 // example RequestVote RPC reply structure.
 //
-type RequestVoteReply struct {
+type RequestVoteReply struct { //Implement first
 	// Your data here.
+	VoteGranted bool
+	CurrentTerm int
+}
+
+type AppendEntriesArgs struct {
+	// payload TBD, log entry, piggyback commit, etc
+	CurrentTerm       int
+	LeaderID          int
+	PrevLogIndex      int
+	PrevLogTerm       int
+	Entries           []*logEntries
+	LeaderCommitIndex int
+}
+
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
+}
+
+// Handler
+func (rf *Raft) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
+	//Handler for followers
+	// When a candidate discovers that is term is out of date, it immediately reverts to follower state
+	if rf.currentTerm <= args.CurrentTerm {
+		rf.currentTerm = args.CurrentTerm
+		rf.role = "follower"                    // Just in case it is a candidate
+		rf.ElectionTimer = 100 + rand.Int()%101 // reset election countdown
+	}
+	reply.Term = rf.currentTerm //Reply current Term
+}
+
+func (rf *Raft) SendAppendEntries(server int, args AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
 }
 
 //
@@ -112,6 +178,17 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
+	//	Reject voting request if candidate is in a lower term
+	if args.Term < rf.currentTerm {
+		reply.VoteGranted = false
+	} else {
+		//	When a candidate or leader discovers that is term is out of date, it immediately reverts to follower state
+		rf.role = "follower"
+		rf.ElectionTimer = 100 + rand.Int()%101 // Starts Election timer
+		rf.currentTerm = args.Term              // Update Term
+		reply.VoteGranted = true
+	}
+	reply.CurrentTerm = rf.currentTerm
 }
 
 //
@@ -131,11 +208,10 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *RequestVoteReply) bool { //Must send to all
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
-
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -154,7 +230,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
 
 	return index, term, isLeader
 }
@@ -180,18 +255,120 @@ func (rf *Raft) Kill() {
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
 //
-func Make(peers []*labrpc.ClientEnd, me int,
-	persister *Persister, applyCh chan ApplyMsg) *Raft {
-	rf := &Raft{}
+func Make(peers []*labrpc.ClientEnd, me int, // create a background goroutine that starts an election
+	persister *Persister, applyCh chan ApplyMsg) *Raft { // (by sending out RequestVote RPCs) when it hasn't heard
+	rf := &Raft{} // from another peer for a while
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
 
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	rf.role = "follower"
+
+	rf.log = make([]*logEntries, 0)
+	rf.log = append(rf.log, &logEntries{ //initialize log with term 0, index 0
+		Command: nil,
+		term:    0,
+		index:   0,
+	})
 	// Your initialization code here.
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	go rf.mainServerLoop()
 
 	return rf
+}
+
+func (rf *Raft) mainServerLoop() { // Infinite loop
+	rf.ElectionTimer = 100 + rand.Int()%101 // Initial randomized counter value for all servers
+	for {
+		if rf.role == "follower" {
+			time.Sleep(1 * time.Millisecond)
+			rf.ElectionTimer-- // Countdown of timer
+			if rf.ElectionTimer < 0 {
+				rf.role = "candidate"
+			}
+		}
+		if rf.role == "candidate" {
+			if rf.ElectionTimer < 0 { //Create goroutine and send msgs
+				rf.ElectionTimer = 100 + rand.Int()%101
+				rf.currentTerm++
+				rf.votes = 1 // Voting for self
+
+				for i := range rf.peers { // iterate through all peers
+					if i == rf.me {
+						// avoid sending auto RPC
+						continue
+					} else {
+						// sending requests of votes to the rest
+						// Creates goroutine to avoid blocking loop while waiting for reply
+						go rf.nonBlockingSends("voteRequest", i)
+					}
+				}
+			} else {
+				if rf.votes > int(len(rf.peers)/2) {
+					// Majority has been reached
+					rf.role = "leader"
+					rf.LeaderTimer = 0 // To send inmediatly a heatbeat
+				} else {
+					time.Sleep(1 * time.Millisecond)
+					rf.ElectionTimer--
+				}
+			}
+		}
+		if rf.role == "leader" {
+			if rf.LeaderTimer < 0 {
+				// Create goroutine and send heartbeat
+				rf.LeaderTimer = 50 // milliseconds
+				for i := range rf.peers {
+					if i == rf.me {
+						// avoid sending auto RPC
+						continue
+					} else {
+						// sending requests of votes to the rest
+						go rf.nonBlockingSends("appendEntry", i) // Creates goroutine to avoid blocking loop while waiting for reply
+					}
+				}
+			} else {
+				rf.LeaderTimer--
+				time.Sleep(1 * time.Millisecond)
+			}
+		}
+	}
+}
+
+func (rf *Raft) nonBlockingSends(msg string, index int) {
+	if msg == "appendEntry" {
+		reply := AppendEntriesReply{Term: -1, Success: false}
+		rf.SendAppendEntries(index, AppendEntriesArgs{
+			CurrentTerm:       rf.currentTerm,
+			LeaderID:          rf.me,
+			PrevLogIndex:      0,
+			PrevLogTerm:       0,
+			Entries:           nil,
+			LeaderCommitIndex: 0,
+		}, &reply)
+		if reply.Term > rf.currentTerm {
+			rf.currentTerm = reply.Term
+			rf.role = "follower"
+			rf.ElectionTimer = 100 + rand.Int()%101 // reset election countdown
+		}
+	} else if msg == "voteRequest" {
+		reply := RequestVoteReply{
+			VoteGranted: false,
+			CurrentTerm: -1,
+		}
+		rf.sendRequestVote(index, RequestVoteArgs{rf.currentTerm, rf.me, rf.log[len(rf.log)-1].index, rf.log[len(rf.log)-1].term}, &reply)
+		if reply.VoteGranted == false {
+			rf.currentTerm = reply.CurrentTerm // Update own Term
+			rf.role = "follower"               // Converts in follower
+		} else if reply.VoteGranted == true {
+			rf.votes++
+		}
+	}
 }
