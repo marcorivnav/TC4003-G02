@@ -170,7 +170,10 @@ func (rf *Raft) SendAppendEntries(server int, args AppendEntriesArgs, reply *App
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// When a raft server receives a vote request from another server, it should evaluate the term of the candidate and include
 	// its vote in the reply
-	if args.Term < rf.currentTerm {
+	argsIndex := args.LastLogIndex
+	myIndex := rf.log[len(rf.log)-1].Index
+
+	if args.Term < rf.currentTerm || (args.Term == rf.currentTerm && argsIndex < myIndex) {
 		reply.VoteGranted = false
 	} else {
 		reply.VoteGranted = true
@@ -355,7 +358,7 @@ func (rf *Raft) CandidateHandler() {
 // LeaderHandler wraps the Raft server behavior for the case its role is LEADER in the Main method
 func (rf *Raft) LeaderHandler() {
 	// A leader is constantly checking its heartbeat timeout
-	if rf.heartbeatTimeout < 0 {
+	if rf.heartbeatTimeout <= 0 {
 		//  When the heartbeat timeout reaches 0, the leader resets its heartbeat timeout
 		rf.ResetHeartbeatTimeout()
 
